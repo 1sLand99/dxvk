@@ -531,7 +531,7 @@ namespace dxvk {
     if (unlikely(m_losableResourceCounter.load() != 0 && !IsExtended() && m_d3d9Options.countLosableResources)) {
       Logger::warn(str::format("Device reset failed because device still has alive losable resources: Device not reset. Remaining resources: ", m_losableResourceCounter.load()));
       m_deviceLostState = D3D9DeviceLostState::NotReset;
-      return D3DERR_INVALIDCALL;
+      return D3DERR_DEVICELOST;
     }
 
     HRESULT hr = ResetSwapChain(pPresentationParameters, nullptr);
@@ -1139,9 +1139,9 @@ namespace dxvk {
       cSubresources = srcSubresourceLayers,
       cLevelExtent  = srcTexExtent
     ] (DxvkContext* ctx) {
-      ctx->copyImageToBuffer(cBufferSlice.buffer(), cBufferSlice.offset(), 4, 0,
-        cImage, cSubresources, VkOffset3D { 0, 0, 0 },
-        cLevelExtent);
+      ctx->copyImageToBuffer(cBufferSlice.buffer(), cBufferSlice.offset(),
+        4, 0, VK_FORMAT_UNDEFINED, cImage, cSubresources,
+        VkOffset3D { 0, 0, 0 }, cLevelExtent);
     });
 
     dstTexInfo->SetNeedsReadback(dst->GetSubresource(), true);
@@ -3917,11 +3917,22 @@ namespace dxvk {
 
       D3D9_SOFTWARE_CURSOR* pSoftwareCursor = m_cursor.GetSoftwareCursor();
 
-      UINT cursorWidth  = m_cursor.IsCursorVisible() ? pSoftwareCursor->Width : 0;
-      UINT cursorHeight = m_cursor.IsCursorVisible() ? pSoftwareCursor->Height : 0;
+      UINT cursorWidth  = pSoftwareCursor->DrawCursor ? pSoftwareCursor->Width : 0;
+      UINT cursorHeight = pSoftwareCursor->DrawCursor ? pSoftwareCursor->Height : 0;
 
       m_implicitSwapchain->SetCursorPosition(pSoftwareCursor->X, pSoftwareCursor->Y,
                                              cursorWidth, cursorHeight);
+
+      // Once a hardware cursor has been set or the device has been reset,
+      // we need to ensure that we render a 0-sized rectangle first, and
+      // only then fully clear the software cursor.
+      if (unlikely(pSoftwareCursor->ResetCursor)) {
+        pSoftwareCursor->Width = 0;
+        pSoftwareCursor->Height = 0;
+        pSoftwareCursor->X = 0;
+        pSoftwareCursor->Y = 0;
+        pSoftwareCursor->ResetCursor = false;
+      }
     }
 
     return m_implicitSwapchain->Present(
@@ -3947,6 +3958,15 @@ namespace dxvk {
 
     if (unlikely(ppSurface == nullptr))
       return D3DERR_INVALIDCALL;
+
+    if (unlikely(MultiSample > D3DMULTISAMPLE_16_SAMPLES))
+      return D3DERR_INVALIDCALL;
+
+    uint32_t sampleCount = std::max<uint32_t>(MultiSample, 1u);
+
+    // Check if this is a power of two...
+    if (sampleCount & (sampleCount - 1))
+      return D3DERR_NOTAVAILABLE;
 
     D3D9_COMMON_TEXTURE_DESC desc;
     desc.Width              = Width;
@@ -4504,7 +4524,7 @@ namespace dxvk {
     m_stagingBufferAllocated += size;
 
     D3D9BufferSlice result;
-    result.slice = m_stagingBuffer.alloc(256, size);
+    result.slice = m_stagingBuffer.alloc(size);
     result.mapPtr = result.slice.mapPtr(0);
     return result;
   }
@@ -4830,23 +4850,10 @@ namespace dxvk {
           cLevelExtent      = levelExtent,
           cPackedFormat     = packedFormat
         ] (DxvkContext* ctx) {
-          if (cSubresources.aspectMask != (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) {
-            ctx->copyImageToBuffer(cImageBufferSlice.buffer(),
-              cImageBufferSlice.offset(), 4, 0, cImage,
-              cSubresources, VkOffset3D { 0, 0, 0 },
-              cLevelExtent);
-          } else {
-            // Copying DS to a packed buffer is only supported for D24S8 and D32S8
-            // right now so the 4 byte row alignment is guaranteed by the format size
-            ctx->copyDepthStencilImageToPackedBuffer(
-              cImageBufferSlice.buffer(), cImageBufferSlice.offset(),
-              VkOffset2D { 0, 0 },
-              VkExtent2D { cLevelExtent.width, cLevelExtent.height },
-              cImage, cSubresources,
-              VkOffset2D { 0, 0 },
-              VkExtent2D { cLevelExtent.width, cLevelExtent.height },
-              cPackedFormat);
-          }
+          ctx->copyImageToBuffer(cImageBufferSlice.buffer(),
+            cImageBufferSlice.offset(), 4, 0, cPackedFormat,
+            cImage, cSubresources, VkOffset3D { 0, 0, 0 },
+            cLevelExtent);
         });
         TrackTextureMappingBufferSequenceNumber(pResource, Subresource);
       }
@@ -5073,22 +5080,11 @@ namespace dxvk {
         cOffset         = alignedDestOffset,
         cPackedDSFormat = packedDSFormat
       ] (DxvkContext* ctx) {
-        if (cDstLayers.aspectMask != (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) {
-          ctx->copyBufferToImage(
-            cDstImage,  cDstLayers,
-            cOffset, cDstLevelExtent,
-            cSrcSlice.buffer(), cSrcSlice.offset(),
-            1, 1);
-        } else {
-          ctx->copyPackedBufferToDepthStencilImage(
-                cDstImage, cDstLayers,
-                VkOffset2D { cOffset.x, cOffset.y },
-                VkExtent2D { cDstLevelExtent.width, cDstLevelExtent.height },
-                cSrcSlice.buffer(), cSrcSlice.offset(),
-                VkOffset2D { 0, 0 },
-                VkExtent2D { cDstLevelExtent.width, cDstLevelExtent.height },
-                cPackedDSFormat);
-        }
+        ctx->copyBufferToImage(
+          cDstImage,  cDstLayers,
+          cOffset, cDstLevelExtent,
+          cSrcSlice.buffer(), cSrcSlice.offset(),
+          0, 0, cPackedDSFormat);
       });
 
       TrackTextureMappingBufferSequenceNumber(pSrcTexture, SrcSubresource);
@@ -5357,7 +5353,7 @@ namespace dxvk {
 
     *pDynamicVBOs = dynamicSysmemVBOs;
 
-    if (pDynamicIBO)
+    if (unlikely(pDynamicIBO))
       *pDynamicIBO = dynamicSysmemIBO;
 
     if (likely(!dynamicSysmemVBOs && !dynamicSysmemIBO))
@@ -6912,7 +6908,7 @@ namespace dxvk {
       const uint32_t buffersToUpload = m_activeVertexBuffersToUpload & usedBuffersMask;
       for (uint32_t bufferIdx : bit::BitMask(buffersToUpload)) {
         auto* vbo = GetCommonBuffer(m_state.vertexBuffers[bufferIdx].vertexBuffer);
-        if (vbo != nullptr && vbo->NeedsUpload())
+        if (likely(vbo != nullptr && vbo->NeedsUpload()))
           FlushBuffer(vbo);
       }
       m_activeVertexBuffersToUpload &= ~buffersToUpload;
@@ -6930,44 +6926,44 @@ namespace dxvk {
       GenerateTextureMips(texturesToGen);
 
     auto* ibo = GetCommonBuffer(m_state.indices);
-    if (UploadIBO && ibo != nullptr && ibo->NeedsUpload())
+    if (unlikely(UploadIBO && ibo != nullptr && ibo->NeedsUpload()))
       FlushBuffer(ibo);
 
     UpdateFog();
 
-    if (m_flags.test(D3D9DeviceFlag::DirtyFramebuffer))
+    if (unlikely(m_flags.test(D3D9DeviceFlag::DirtyFramebuffer)))
       BindFramebuffer();
 
-    if (m_flags.test(D3D9DeviceFlag::DirtyViewportScissor))
+    if (unlikely(m_flags.test(D3D9DeviceFlag::DirtyViewportScissor)))
       BindViewportAndScissor();
 
     const uint32_t activeDirtySamplers = m_dirtySamplerStates & usedTextureMask;
-    if (activeDirtySamplers)
+    if (unlikely(activeDirtySamplers))
       UndirtySamplers(activeDirtySamplers);
 
     const uint32_t usedDirtyTextures = m_dirtyTextures & usedSamplerMask;
-    if (usedDirtyTextures)
+    if (likely(usedDirtyTextures))
       UndirtyTextures(usedDirtyTextures);
 
-    if (m_flags.test(D3D9DeviceFlag::DirtyBlendState))
+    if (unlikely(m_flags.test(D3D9DeviceFlag::DirtyBlendState)))
       BindBlendState();
 
-    if (m_flags.test(D3D9DeviceFlag::DirtyDepthStencilState))
+    if (unlikely(m_flags.test(D3D9DeviceFlag::DirtyDepthStencilState)))
       BindDepthStencilState();
 
-    if (m_flags.test(D3D9DeviceFlag::DirtyRasterizerState))
+    if (unlikely(m_flags.test(D3D9DeviceFlag::DirtyRasterizerState)))
       BindRasterizerState();
 
-    if (m_flags.test(D3D9DeviceFlag::DirtyDepthBias))
+    if (unlikely(m_flags.test(D3D9DeviceFlag::DirtyDepthBias)))
       BindDepthBias();
 
-    if (m_flags.test(D3D9DeviceFlag::DirtyMultiSampleState))
+    if (unlikely(m_flags.test(D3D9DeviceFlag::DirtyMultiSampleState)))
       BindMultiSampleState();
 
-    if (m_flags.test(D3D9DeviceFlag::DirtyAlphaTestState))
+    if (unlikely(m_flags.test(D3D9DeviceFlag::DirtyAlphaTestState)))
       BindAlphaTestState();
 
-    if (m_flags.test(D3D9DeviceFlag::DirtyClipPlanes))
+    if (unlikely(m_flags.test(D3D9DeviceFlag::DirtyClipPlanes)))
       UpdateClipPlanes();
 
     UpdatePointMode(PrimitiveType == D3DPT_POINTLIST);
@@ -6993,7 +6989,7 @@ namespace dxvk {
       UpdateFixedFunctionVS();
     }
 
-    if (m_flags.test(D3D9DeviceFlag::DirtyInputLayout))
+    if (unlikely(m_flags.test(D3D9DeviceFlag::DirtyInputLayout)))
       BindInputLayout();
 
     if (likely(UseProgrammablePS())) {
@@ -7026,7 +7022,7 @@ namespace dxvk {
     const uint32_t drefClampMask = m_drefClamp & depthTextureMask;
     UpdateCommonSamplerSpec(nullTextureMask, depthTextureMask, drefClampMask);
 
-    if (m_flags.test(D3D9DeviceFlag::DirtySharedPixelShaderData)) {
+    if (unlikely(m_flags.test(D3D9DeviceFlag::DirtySharedPixelShaderData))) {
       m_flags.clr(D3D9DeviceFlag::DirtySharedPixelShaderData);
 
       auto mapPtr = m_psShared.AllocSlice();
@@ -7047,7 +7043,7 @@ namespace dxvk {
       }
     }
 
-    if (m_flags.test(D3D9DeviceFlag::DirtyDepthBounds)) {
+    if (unlikely(m_flags.test(D3D9DeviceFlag::DirtyDepthBounds))) {
       m_flags.clr(D3D9DeviceFlag::DirtyDepthBounds);
 
       DxvkDepthBounds db;
@@ -8142,6 +8138,12 @@ namespace dxvk {
       "                ^ Format: ", EnumerateFormat(pPresentationParameters->AutoDepthStencilFormat), "\n",
       "    - Windowed:           ", pPresentationParameters->Windowed ? "true" : "false", "\n",
       "    - Swap effect:        ", pPresentationParameters->SwapEffect, "\n"));
+
+    if (!pPresentationParameters->Windowed &&
+        (pPresentationParameters->BackBufferWidth  == 0
+      || pPresentationParameters->BackBufferHeight == 0)) {
+      return D3DERR_INVALIDCALL;
+    }
 
     if (backBufferFmt != D3D9Format::Unknown && !unlockedFormats) {
       if (!IsSupportedBackBufferFormat(backBufferFmt)) {

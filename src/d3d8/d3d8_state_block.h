@@ -75,7 +75,7 @@ namespace dxvk {
       if (likely(m_stateBlock == nullptr)) {
         m_stateBlock = std::move(pStateBlock);
       } else {
-        Logger::err("D3D8StateBlock::SetD3D9 called when m_stateBlock has already been initialized");
+        Logger::err("D3D8StateBlock::SetD3D9: m_stateBlock has already been initialized");
       }
     }
 
@@ -103,7 +103,9 @@ namespace dxvk {
 
     inline HRESULT SetStreamSource(UINT StreamNumber, IDirect3DVertexBuffer8* pStreamData, UINT Stride) {
       m_streams[StreamNumber].buffer = pStreamData;
-      m_streams[StreamNumber].stride = Stride;
+      // The previous stride is preserved if pStreamData is NULL
+      if (likely(pStreamData != nullptr))
+        m_streams[StreamNumber].stride = Stride;
       m_capture.streams.set(StreamNumber, true);
       return D3D_OK;
     }

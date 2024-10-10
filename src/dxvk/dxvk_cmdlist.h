@@ -15,7 +15,6 @@
 #include "dxvk_presenter.h"
 #include "dxvk_signal.h"
 #include "dxvk_sparse.h"
-#include "dxvk_staging.h"
 #include "dxvk_stats.h"
 
 namespace dxvk {
@@ -547,28 +546,30 @@ namespace dxvk {
     
     
     void cmdClearColorImage(
+            DxvkCmdBuffer           cmdBuffer,
             VkImage                 image,
             VkImageLayout           imageLayout,
       const VkClearColorValue*      pColor,
             uint32_t                rangeCount,
       const VkImageSubresourceRange* pRanges) {
-      m_cmd.usedFlags.set(DxvkCmdBuffer::ExecBuffer);
+      m_cmd.usedFlags.set(cmdBuffer);
 
-      m_vkd->vkCmdClearColorImage(m_cmd.execBuffer,
+      m_vkd->vkCmdClearColorImage(getCmdBuffer(cmdBuffer),
         image, imageLayout, pColor,
         rangeCount, pRanges);
     }
     
     
     void cmdClearDepthStencilImage(
+            DxvkCmdBuffer           cmdBuffer,
             VkImage                 image,
             VkImageLayout           imageLayout,
       const VkClearDepthStencilValue* pDepthStencil,
             uint32_t                rangeCount,
       const VkImageSubresourceRange* pRanges) {
-      m_cmd.usedFlags.set(DxvkCmdBuffer::ExecBuffer);
+      m_cmd.usedFlags.set(cmdBuffer);
 
-      m_vkd->vkCmdClearDepthStencilImage(m_cmd.execBuffer,
+      m_vkd->vkCmdClearDepthStencilImage(getCmdBuffer(cmdBuffer),
         image, imageLayout, pDepthStencil,
         rangeCount, pRanges);
     }
@@ -973,7 +974,14 @@ namespace dxvk {
       m_vkd->vkCmdSetStencilReference(m_cmd.execBuffer,
         faceMask, reference);
     }
-    
+
+
+    void cmdSetStencilWriteMask(
+            VkStencilFaceFlags      faceMask,
+            uint32_t                writeMask) {
+      m_vkd->vkCmdSetStencilWriteMask(m_cmd.execBuffer, faceMask, writeMask);
+    }
+
     
     void cmdSetViewport(
             uint32_t                viewportCount,

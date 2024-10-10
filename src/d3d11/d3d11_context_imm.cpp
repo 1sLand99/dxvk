@@ -20,6 +20,7 @@ namespace dxvk {
     m_maxImplicitDiscardSize(pParent->GetOptions()->maxImplicitDiscardSize),
     m_submissionFence(new sync::CallbackFence()),
     m_flushTracker(pParent->GetOptions()->reproducibleCommandStream),
+    m_stagingBufferFence(new sync::Fence(0)),
     m_multithread(this, false, pParent->GetOptions()->enableContextLock),
     m_videoContext(this, Device) {
     EmitCs([
@@ -617,18 +618,8 @@ namespace dxvk {
       VkOffset3D offset = { 0, 0, 0 };
       VkExtent3D extent = cSrcImage->mipLevelExtent(cSrcSubresource.mipLevel);
 
-      if (cSrcSubresource.aspectMask != (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) {
-        ctx->copyImageToBuffer(cDstBuffer, 0, 0, 0,
-          cSrcImage, cSrcSubresource, offset, extent);
-      } else {
-        ctx->copyDepthStencilImageToPackedBuffer(cDstBuffer, 0,
-          VkOffset2D { 0, 0 },
-          VkExtent2D { extent.width, extent.height },
-          cSrcImage, cSrcSubresource,
-          VkOffset2D { 0, 0 },
-          VkExtent2D { extent.width, extent.height },
-          cPackedFormat);
-      }
+      ctx->copyImageToBuffer(cDstBuffer, 0, 0, 0, cPackedFormat,
+        cSrcImage, cSrcSubresource, offset, extent);
     });
 
     if (pResource->HasSequenceNumber())
@@ -675,20 +666,10 @@ namespace dxvk {
         cSrcDepthPitch  = subresourceLayout.DepthPitch,
         cPackedFormat   = pResource->GetPackedFormat()
       ] (DxvkContext* ctx) {
-        if (cDstSubresource.aspectMask != (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) {
-          ctx->copyBufferToImage(
-            cDstImage, cDstSubresource, cDstOffset, cDstExtent,
-            cSrcBuffer, cSrcOffset, cSrcRowPitch, cSrcDepthPitch);
-        } else {
-          ctx->copyPackedBufferToDepthStencilImage(
-            cDstImage, cDstSubresource,
-            VkOffset2D { cDstOffset.x, cDstOffset.y },
-            VkExtent2D { cDstExtent.width, cDstExtent.height },
-            cSrcBuffer, 0,
-            VkOffset2D { cDstOffset.x, cDstOffset.y },
-            VkExtent2D { cDstExtent.width, cDstExtent.height },
-            cPackedFormat);
-        }
+        ctx->copyBufferToImage(
+          cDstImage, cDstSubresource, cDstOffset, cDstExtent,
+          cSrcBuffer, cSrcOffset, cSrcRowPitch, cSrcDepthPitch,
+          cPackedFormat);
       });
     }
 
@@ -900,6 +881,10 @@ namespace dxvk {
 
 
   void D3D11ImmediateContext::EmitCsChunk(DxvkCsChunkRef&& chunk) {
+    // Flush init commands so that the CS thread
+    // can processe them before the first use.
+    m_parent->FlushInitCommands();
+
     m_csSeqNum = m_csThread.dispatchChunk(std::move(chunk));
   }
 
@@ -955,11 +940,6 @@ namespace dxvk {
     if (synchronizeSubmission)
       m_submitStatus.result = VK_NOT_READY;
 
-    // Flush init context so that new resources are fully initialized
-    // before the app can access them in any way. This has to happen
-    // unconditionally since we may otherwise deadlock on Map.
-    m_parent->FlushInitContext();
-
     // Exit early if there's nothing to do
     if (!GetPendingCsChunks() && !hEvent)
       return;
@@ -976,9 +956,12 @@ namespace dxvk {
     EmitCs<false>([
       cSubmissionFence  = m_submissionFence,
       cSubmissionId     = submissionId,
-      cSubmissionStatus = synchronizeSubmission ? &m_submitStatus : nullptr
+      cSubmissionStatus = synchronizeSubmission ? &m_submitStatus : nullptr,
+      cStagingFence     = m_stagingBufferFence,
+      cStagingMemory    = m_staging.getStatistics().allocatedTotal
     ] (DxvkContext* ctx) {
       ctx->signal(cSubmissionFence, cSubmissionId);
+      ctx->signal(cStagingFence, cStagingMemory);
       ctx->flushCommandList(cSubmissionStatus);
     });
 
@@ -992,6 +975,34 @@ namespace dxvk {
     // Vulkan queue submission is performed.
     if (synchronizeSubmission)
       m_device->waitForSubmission(&m_submitStatus);
+
+    // Free local staging buffer so that we don't
+    // end up with a persistent allocation
+    ResetStagingBuffer();
+
+    // Notify the device that the context has been flushed,
+    // this resets some resource initialization heuristics.
+    m_parent->NotifyContextFlush();
   }
-  
+
+
+  void D3D11ImmediateContext::ThrottleAllocation() {
+    DxvkStagingBufferStats stats = m_staging.getStatistics();
+
+    VkDeviceSize stagingMemoryInFlight = stats.allocatedTotal - m_stagingBufferFence->value();
+
+    if (stagingMemoryInFlight > stats.allocatedSinceLastReset + D3D11Initializer::MaxMemoryInFlight) {
+      // Stall calling thread to avoid situation where we keep growing the staging
+      // buffer indefinitely, but ignore the newly allocated amount so that we don't
+      // wait for the GPU to go fully idle in case of a large allocation.
+      ExecuteFlush(GpuFlushType::ExplicitFlush, nullptr, false);
+
+      m_stagingBufferFence->wait(stats.allocatedTotal - stats.allocatedSinceLastReset - D3D11Initializer::MaxMemoryInFlight);
+    } else if (stats.allocatedSinceLastReset >= D3D11Initializer::MaxMemoryPerSubmission) {
+      // Flush somewhat aggressively if there's a lot of memory in flight
+      ExecuteFlush(GpuFlushType::ExplicitFlush, nullptr, false);
+    }
+  }
+
+
 }
