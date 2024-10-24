@@ -54,7 +54,7 @@ namespace dxvk {
     , m_d3d9Options     ( dxvkDevice, pParent->GetInstance()->config() )
     , m_multithread     ( BehaviorFlags & D3DCREATE_MULTITHREADED )
     , m_isSWVP          ( (BehaviorFlags & D3DCREATE_SOFTWARE_VERTEXPROCESSING) ? true : false )
-    , m_csThread        ( dxvkDevice, dxvkDevice->createContext(DxvkContextType::Primary) )
+    , m_csThread        ( dxvkDevice, dxvkDevice->createContext() )
     , m_csChunk         ( AllocCsChunk() )
     , m_submissionFence (new sync::Fence())
     , m_flushTracker    (m_d3d9Options.reproducibleCommandStream)
@@ -5055,13 +5055,17 @@ namespace dxvk {
         slice.mapPtr, mapPtr, srcBlockCount, formatElementSize,
         pitch, std::min(pSrcTexture->GetPlaneCount(), 2u) * pitch * srcBlockCount.height);
 
-      Flush();
-      SynchronizeCsThread(DxvkCsThread::SynchronizeAll);
+      EmitCs([this,
+        cConvertFormat    = convertFormat,
+        cDstImage         = std::move(image),
+        cDstLayers        = convertedDstLayers,
+        cSrcSlice         = std::move(slice.slice)
+      ] (DxvkContext* ctx) {
+        auto contextObjects = ctx->beginExternalRendering();
 
-      m_converter->ConvertFormat(
-        convertFormat,
-        image, convertedDstLayers,
-        slice.slice);
+        m_converter->ConvertFormat(contextObjects,
+          cConvertFormat, cDstImage, cDstLayers, cSrcSlice);
+      });
     }
     UnmapTextures();
     ConsiderFlush(GpuFlushType::ImplicitWeakHint);
@@ -5847,8 +5851,6 @@ namespace dxvk {
 
     if constexpr (Synchronize9On12)
       m_submitStatus.result = VK_NOT_READY;
-
-    m_converter->Flush();
 
     // Update signaled staging buffer counter and signal the fence
     m_stagingMemorySignaled = m_stagingBuffer.getStatistics().allocatedTotal;

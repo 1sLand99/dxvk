@@ -183,7 +183,7 @@ namespace dxvk {
     desc.TextureLayout  = D3D11_TEXTURE_LAYOUT_UNDEFINED;
     
     ID3D11Texture2D1* texture2D = nullptr;
-    HRESULT hr = CreateTexture2D1(&desc, pInitialData, ppTexture2D ? &texture2D : nullptr);
+    HRESULT hr = CreateTexture2DBase(&desc, pInitialData, ppTexture2D ? &texture2D : nullptr);
 
     if (hr != S_OK)
       return hr;
@@ -202,6 +202,14 @@ namespace dxvk {
     if (!pDesc)
       return E_INVALIDARG;
     
+    return CreateTexture2DBase(pDesc, pInitialData, ppTexture2D);
+  }
+
+
+  HRESULT STDMETHODCALLTYPE D3D11Device::CreateTexture2DBase(
+    const D3D11_TEXTURE2D_DESC1*  pDesc,
+    const D3D11_SUBRESOURCE_DATA* pInitialData,
+          ID3D11Texture2D1**      ppTexture2D) {
     D3D11_COMMON_TEXTURE_DESC desc;
     desc.Width          = pDesc->Width;
     desc.Height         = pDesc->Height;
@@ -262,7 +270,7 @@ namespace dxvk {
     desc.TextureLayout  = D3D11_TEXTURE_LAYOUT_UNDEFINED;
     
     ID3D11Texture3D1* texture3D = nullptr;
-    HRESULT hr = CreateTexture3D1(&desc, pInitialData, ppTexture3D ? &texture3D : nullptr);
+    HRESULT hr = CreateTexture3DBase(&desc, pInitialData, ppTexture3D ? &texture3D : nullptr);
 
     if (hr != S_OK)
       return hr;
@@ -280,7 +288,15 @@ namespace dxvk {
 
     if (!pDesc)
       return E_INVALIDARG;
-    
+
+    return CreateTexture3DBase(pDesc, pInitialData, ppTexture3D);
+  }
+  
+  
+  HRESULT STDMETHODCALLTYPE D3D11Device::CreateTexture3DBase(
+    const D3D11_TEXTURE3D_DESC1*  pDesc,
+    const D3D11_SUBRESOURCE_DATA* pInitialData,
+          ID3D11Texture3D1**      ppTexture3D) {
     D3D11_COMMON_TEXTURE_DESC desc;
     desc.Width          = pDesc->Width;
     desc.Height         = pDesc->Height;
@@ -325,6 +341,9 @@ namespace dxvk {
           ID3D11ShaderResourceView**        ppSRView) {
     InitReturnPtr(ppSRView);
 
+    if (!pResource)
+      return E_INVALIDARG;
+
     uint32_t plane = GetViewPlaneIndex(pResource, pDesc ? pDesc->Format : DXGI_FORMAT_UNKNOWN);
 
     D3D11_SHADER_RESOURCE_VIEW_DESC1 desc = pDesc
@@ -333,7 +352,7 @@ namespace dxvk {
     
     ID3D11ShaderResourceView1* view = nullptr;
 
-    HRESULT hr = CreateShaderResourceView1(pResource,
+    HRESULT hr = CreateShaderResourceViewBase(pResource,
       pDesc    ? &desc : nullptr,
       ppSRView ? &view : nullptr);
     
@@ -353,7 +372,15 @@ namespace dxvk {
 
     if (!pResource)
       return E_INVALIDARG;
-    
+
+    return CreateShaderResourceViewBase(pResource, pDesc, ppSRView);
+  }
+  
+  
+  HRESULT STDMETHODCALLTYPE D3D11Device::CreateShaderResourceViewBase(
+          ID3D11Resource*                   pResource,
+    const D3D11_SHADER_RESOURCE_VIEW_DESC1* pDesc,
+          ID3D11ShaderResourceView1**       ppSRView) {
     D3D11_COMMON_RESOURCE_DESC resourceDesc;
     GetCommonResourceDesc(pResource, &resourceDesc);
     
@@ -402,21 +429,24 @@ namespace dxvk {
           ID3D11UnorderedAccessView**       ppUAView) {
     InitReturnPtr(ppUAView);
 
+    if (!pResource)
+      return E_INVALIDARG;
+
     uint32_t plane = GetViewPlaneIndex(pResource, pDesc ? pDesc->Format : DXGI_FORMAT_UNKNOWN);
 
     D3D11_UNORDERED_ACCESS_VIEW_DESC1 desc = pDesc
       ? D3D11UnorderedAccessView::PromoteDesc(pDesc, plane)
       : D3D11_UNORDERED_ACCESS_VIEW_DESC1();
-    
+
     ID3D11UnorderedAccessView1* view = nullptr;
 
-    HRESULT hr = CreateUnorderedAccessView1(pResource,
+    HRESULT hr = CreateUnorderedAccessViewBase(pResource,
       pDesc    ? &desc : nullptr,
       ppUAView ? &view : nullptr);
-    
+
     if (hr != S_OK)
       return hr;
-    
+
     *ppUAView = view;
     return S_OK;
   }
@@ -430,7 +460,15 @@ namespace dxvk {
     
     if (!pResource)
       return E_INVALIDARG;
-    
+
+    return CreateUnorderedAccessViewBase(pResource, pDesc, ppUAView);
+  }
+  
+  
+  HRESULT STDMETHODCALLTYPE D3D11Device::CreateUnorderedAccessViewBase(
+          ID3D11Resource*                   pResource,
+    const D3D11_UNORDERED_ACCESS_VIEW_DESC1* pDesc,
+          ID3D11UnorderedAccessView1**      ppUAView) {
     D3D11_COMMON_RESOURCE_DESC resourceDesc;
     GetCommonResourceDesc(pResource, &resourceDesc);
 
@@ -481,6 +519,9 @@ namespace dxvk {
           ID3D11RenderTargetView**          ppRTView) {
     InitReturnPtr(ppRTView);
 
+    if (!pResource)
+      return E_INVALIDARG;
+
     uint32_t plane = GetViewPlaneIndex(pResource, pDesc ? pDesc->Format : DXGI_FORMAT_UNKNOWN);
 
     D3D11_RENDER_TARGET_VIEW_DESC1 desc = pDesc
@@ -489,7 +530,7 @@ namespace dxvk {
     
     ID3D11RenderTargetView1* view = nullptr;
 
-    HRESULT hr = CreateRenderTargetView1(pResource,
+    HRESULT hr = CreateRenderTargetViewBase(pResource,
       pDesc    ? &desc : nullptr,
       ppRTView ? &view : nullptr);
     
@@ -509,7 +550,15 @@ namespace dxvk {
 
     if (!pResource)
       return E_INVALIDARG;
-    
+
+    return CreateRenderTargetViewBase(pResource, pDesc, ppRTView);
+  }
+  
+  
+  HRESULT STDMETHODCALLTYPE D3D11Device::CreateRenderTargetViewBase(
+          ID3D11Resource*                   pResource,
+    const D3D11_RENDER_TARGET_VIEW_DESC1*   pDesc,
+          ID3D11RenderTargetView1**         ppRTView) {
     // DXVK only supports render target views for image resources
     D3D11_COMMON_RESOURCE_DESC resourceDesc;
     GetCommonResourceDesc(pResource, &resourceDesc);
@@ -742,13 +791,8 @@ namespace dxvk {
     moduleInfo.tess    = nullptr;
     moduleInfo.xfb     = nullptr;
 
-    Sha1Hash hash = Sha1Hash::compute(
-      pShaderBytecode, BytecodeLength);
-    
-    HRESULT hr = CreateShaderModule(&module,
-      DxvkShaderKey(VK_SHADER_STAGE_VERTEX_BIT, hash),
-      pShaderBytecode, BytecodeLength, pClassLinkage,
-      &moduleInfo);
+    HRESULT hr = CreateShaderModule(&module, VK_SHADER_STAGE_VERTEX_BIT,
+      pShaderBytecode, BytecodeLength, pClassLinkage, &moduleInfo);
     
     if (FAILED(hr))
       return hr;
@@ -774,13 +818,8 @@ namespace dxvk {
     moduleInfo.tess    = nullptr;
     moduleInfo.xfb     = nullptr;
 
-    Sha1Hash hash = Sha1Hash::compute(
-      pShaderBytecode, BytecodeLength);
-    
-    HRESULT hr = CreateShaderModule(&module,
-      DxvkShaderKey(VK_SHADER_STAGE_GEOMETRY_BIT, hash),
-      pShaderBytecode, BytecodeLength, pClassLinkage,
-      &moduleInfo);
+    HRESULT hr = CreateShaderModule(&module, VK_SHADER_STAGE_GEOMETRY_BIT,
+      pShaderBytecode, BytecodeLength, pClassLinkage, &moduleInfo);
 
     if (FAILED(hr))
       return hr;
@@ -848,37 +887,15 @@ namespace dxvk {
     
     if (RasterizedStream != D3D11_SO_NO_RASTERIZED_STREAM)
       Logger::err("D3D11: CreateGeometryShaderWithStreamOutput: Rasterized stream not supported");
-    
-    // Compute hash from both the xfb info and the source
-    // code, because both influence the generated code
-    DxbcXfbInfo hashXfb = xfb;
 
-    std::vector<Sha1Data> chunks = {{
-      { pShaderBytecode, BytecodeLength  },
-      { &hashXfb,        sizeof(hashXfb) },
-    }};
-
-    for (uint32_t i = 0; i < hashXfb.entryCount; i++) {
-      const char* semantic = hashXfb.entries[i].semanticName;
-
-      if (semantic) {
-        chunks.push_back({ semantic, std::strlen(semantic) });
-        hashXfb.entries[i].semanticName = nullptr;
-      }
-    }
-
-    Sha1Hash hash = Sha1Hash::compute(chunks.size(), chunks.data());
-    
     // Create the actual shader module
     DxbcModuleInfo moduleInfo;
     moduleInfo.options = m_dxbcOptions;
     moduleInfo.tess    = nullptr;
     moduleInfo.xfb     = &xfb;
     
-    HRESULT hr = CreateShaderModule(&module,
-      DxvkShaderKey(VK_SHADER_STAGE_GEOMETRY_BIT, hash),
-      pShaderBytecode, BytecodeLength, pClassLinkage,
-      &moduleInfo);
+    HRESULT hr = CreateShaderModule(&module, VK_SHADER_STAGE_GEOMETRY_BIT,
+      pShaderBytecode, BytecodeLength, pClassLinkage, &moduleInfo);
 
     if (FAILED(hr))
       return E_INVALIDARG;
@@ -904,14 +921,8 @@ namespace dxvk {
     moduleInfo.tess    = nullptr;
     moduleInfo.xfb     = nullptr;
 
-    Sha1Hash hash = Sha1Hash::compute(
-      pShaderBytecode, BytecodeLength);
-    
-
-    HRESULT hr = CreateShaderModule(&module,
-      DxvkShaderKey(VK_SHADER_STAGE_FRAGMENT_BIT, hash),
-      pShaderBytecode, BytecodeLength, pClassLinkage,
-      &moduleInfo);
+    HRESULT hr = CreateShaderModule(&module, VK_SHADER_STAGE_FRAGMENT_BIT,
+      pShaderBytecode, BytecodeLength, pClassLinkage, &moduleInfo);
 
     if (FAILED(hr))
       return hr;
@@ -943,11 +954,7 @@ namespace dxvk {
     if (tessInfo.maxTessFactor >= 8.0f)
       moduleInfo.tess = &tessInfo;
 
-    Sha1Hash hash = Sha1Hash::compute(
-      pShaderBytecode, BytecodeLength);
-    
-    HRESULT hr = CreateShaderModule(&module,
-      DxvkShaderKey(VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT, hash),
+    HRESULT hr = CreateShaderModule(&module, VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
       pShaderBytecode, BytecodeLength, pClassLinkage, &moduleInfo);
 
     if (FAILED(hr))
@@ -974,11 +981,7 @@ namespace dxvk {
     moduleInfo.tess    = nullptr;
     moduleInfo.xfb     = nullptr;
 
-    Sha1Hash hash = Sha1Hash::compute(
-      pShaderBytecode, BytecodeLength);
-    
-    HRESULT hr = CreateShaderModule(&module,
-      DxvkShaderKey(VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, hash),
+    HRESULT hr = CreateShaderModule(&module, VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT,
       pShaderBytecode, BytecodeLength, pClassLinkage, &moduleInfo);
 
     if (FAILED(hr))
@@ -1005,13 +1008,8 @@ namespace dxvk {
     moduleInfo.tess    = nullptr;
     moduleInfo.xfb     = nullptr;
 
-    Sha1Hash hash = Sha1Hash::compute(
-      pShaderBytecode, BytecodeLength);
-    
-    HRESULT hr = CreateShaderModule(&module,
-      DxvkShaderKey(VK_SHADER_STAGE_COMPUTE_BIT, hash),
-      pShaderBytecode, BytecodeLength, pClassLinkage,
-      &moduleInfo);
+    HRESULT hr = CreateShaderModule(&module, VK_SHADER_STAGE_COMPUTE_BIT,
+      pShaderBytecode, BytecodeLength, pClassLinkage, &moduleInfo);
 
     if (FAILED(hr))
       return hr;
@@ -1202,7 +1200,7 @@ namespace dxvk {
     desc.ContextType = D3D11_CONTEXT_TYPE_ALL;
 
     ID3D11Query1* query = nullptr;
-    HRESULT hr = CreateQuery1(&desc, ppQuery ? &query : nullptr);
+    HRESULT hr = CreateQueryBase(&desc, ppQuery ? &query : nullptr);
 
     if (hr != S_OK)
       return hr;
@@ -1219,7 +1217,14 @@ namespace dxvk {
 
     if (!pQueryDesc)
       return E_INVALIDARG;
-    
+
+    return CreateQueryBase(pQueryDesc, ppQuery);
+  }
+
+  
+  HRESULT STDMETHODCALLTYPE D3D11Device::CreateQueryBase(
+    const D3D11_QUERY_DESC1*          pQueryDesc,
+          ID3D11Query1**              ppQuery) {
     HRESULT hr = D3D11Query::ValidateDesc(pQueryDesc);
 
     if (FAILED(hr))
@@ -1952,22 +1957,83 @@ namespace dxvk {
 
     return enabled;
   }
-  
-  
+
+
+  DxvkShaderKey D3D11Device::ComputeShaderKey(
+          VkShaderStageFlagBits   ShaderStage,
+    const void*                   pShaderBytecode,
+          size_t                  BytecodeLength,
+    const DxbcModuleInfo*         pModuleInfo) {
+    constexpr static uint32_t Md5Size = 16;
+
+    // DXBC shaders store an MD5 hash within their header, so just
+    // use that instead of running SHA-1 over the entire binary.
+    Sha1Digest digest = { };
+
+    if (BytecodeLength >= Md5Size + 4u)
+      std::memcpy(&digest[0], reinterpret_cast<const char*>(pShaderBytecode) + 4, Md5Size);
+
+    uint32_t metadata = uint32_t(ShaderStage) | (uint32_t(BytecodeLength) << 8u);
+    std::memcpy(&digest[Md5Size], &metadata, sizeof(metadata));
+
+    // If transform feedback is enabled, hash that state too since it
+    // affects the generated shader code, and factor it into the key.
+    if (pModuleInfo && pModuleInfo->xfb) {
+      std::vector<unsigned char> serialized;
+
+      serialized.push_back(pModuleInfo->xfb->entryCount);
+
+      for (uint32_t i = 0; i < pModuleInfo->xfb->entryCount; i++) {
+        if (pModuleInfo->xfb->entries[i].semanticName) {
+          for (uint32_t j = 0; pModuleInfo->xfb->entries[i].semanticName[j]; j++)
+            serialized.push_back(pModuleInfo->xfb->entries[i].semanticName[j]);
+        }
+
+        serialized.push_back(pModuleInfo->xfb->entries[i].semanticIndex);
+        serialized.push_back(pModuleInfo->xfb->entries[i].componentIndex);
+        serialized.push_back(pModuleInfo->xfb->entries[i].componentCount);
+        serialized.push_back(pModuleInfo->xfb->entries[i].streamId);
+        serialized.push_back(pModuleInfo->xfb->entries[i].bufferId);
+        serialized.push_back(pModuleInfo->xfb->entries[i].offset);
+        serialized.push_back(pModuleInfo->xfb->entries[i].offset >> 8u);
+      }
+
+      for (uint32_t i = 0; i < 4u; i++) {
+        serialized.push_back(pModuleInfo->xfb->strides[i]);
+        serialized.push_back(pModuleInfo->xfb->strides[i] >> 8u);
+      }
+
+      serialized.push_back(pModuleInfo->xfb->rasterizedStream);
+
+      Sha1Digest xfbDigest = Sha1Hash::compute(serialized.data(), serialized.size()).digest();
+
+      for (size_t i = 0; i < xfbDigest.size(); i++)
+        digest[i] ^= xfbDigest[i];
+    }
+
+    return DxvkShaderKey(ShaderStage, Sha1Hash(digest));
+  }
+
+
   HRESULT D3D11Device::CreateShaderModule(
           D3D11CommonShader*      pShaderModule,
-          DxvkShaderKey           ShaderKey,
+          VkShaderStageFlagBits   ShaderStage,
     const void*                   pShaderBytecode,
           size_t                  BytecodeLength,
           ID3D11ClassLinkage*     pClassLinkage,
     const DxbcModuleInfo*         pModuleInfo) {
+    if (!BytecodeLength || !pShaderBytecode)
+      return E_INVALIDARG;
+
     if (pClassLinkage != nullptr)
       Logger::warn("D3D11Device::CreateShaderModule: Class linkage not supported");
+
+    DxvkShaderKey shaderKey = ComputeShaderKey(ShaderStage, pShaderBytecode, BytecodeLength, pModuleInfo);
 
     D3D11CommonShader commonShader;
 
     HRESULT hr = m_shaderModules.GetShaderModule(this,
-      &ShaderKey, pModuleInfo, pShaderBytecode, BytecodeLength,
+      &shaderKey, pModuleInfo, pShaderBytecode, BytecodeLength,
       &commonShader);
 
     if (FAILED(hr))

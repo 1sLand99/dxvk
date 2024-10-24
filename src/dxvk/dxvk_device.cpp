@@ -113,14 +113,6 @@ namespace dxvk {
 
     return result;
   }
-
-
-  DxvkDeviceOptions DxvkDevice::options() const {
-    DxvkDeviceOptions options;
-    options.maxNumDynamicUniformBuffers = m_properties.core.properties.limits.maxDescriptorSetUniformBuffersDynamic;
-    options.maxNumDynamicStorageBuffers = m_properties.core.properties.limits.maxDescriptorSetStorageBuffersDynamic;
-    return options;
-  }
   
   
   Rc<DxvkCommandList> DxvkDevice::createCommandList() {
@@ -133,8 +125,8 @@ namespace dxvk {
   }
 
 
-  Rc<DxvkContext> DxvkDevice::createContext(DxvkContextType type) {
-    return new DxvkContext(this, type);
+  Rc<DxvkContext> DxvkDevice::createContext() {
+    return new DxvkContext(this);
   }
 
 
